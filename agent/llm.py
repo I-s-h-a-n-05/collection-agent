@@ -1,6 +1,5 @@
 # agent/llm.py
 from httpx import _content
-from httpx import _content
 import os
 import httpx
 from dotenv import load_dotenv
@@ -73,6 +72,8 @@ def generate_message(customer, stage, days_delta, channel):
                             "You are a professional collections assistant. "
                             "Follow instructions exactly. Return only what is asked, "
                             "no preamble, no extra text."
+                            "Sign off all messages as: Collections Team, Insignytics."
+                            
                         ),
                     },
                     {

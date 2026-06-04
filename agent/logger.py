@@ -3,7 +3,11 @@ import sqlite3
 import os
 from datetime import datetime
 
-DB_PATH = os.path.join(os.path.dirname(__file__), '..', 'data', 'collection_log.db')
+# agent/logger.py  — replace the DB_PATH line (line 6) with:
+DB_PATH = os.environ.get(
+    "COLLECTION_DB_PATH",
+    os.path.join(os.path.dirname(__file__), '..', 'data', 'collection_log.db')
+)
 
 def get_connection():
     conn = sqlite3.connect(DB_PATH)

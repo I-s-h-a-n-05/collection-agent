@@ -1,5 +1,155 @@
-apscheduler==3.10.4
-httpx==0.27.0
-python-dotenv==1.0.1
-twilio==9.2.3
-pytest==8.2.0
+# AI-Powered Collection Agent — Context Handoff
+
+## About
+I am Ishan, 3rd-year B.Tech AI/ML student at VIT Chennai, building an AI-Powered
+Collection Agent as my internship project at Insignytics. Lead: Anuj Pandey
+(anuj@insignytics.com). Background: built AI projects (NeuroScan, SentimentScope,
+DocTalk). Learning SDLC while building this.
+
+## What the agent does
+Reads customer payment records → detects which collection stage each invoice is at
+→ generates personalized messages via LLM → sends via Email/WhatsApp → logs every
+interaction → deduplicates so no message is ever sent twice for the same stage.
+
+## SDLC Phases (status)
+- Phase 1 — Planning ✅ (tech stack, repo setup)
+- Phase 2 — Requirements Analysis ✅ (data models, stage rules, SQLite schema)
+- Phase 3 — System Design ✅ (architecture, scanner.py)
+- Phase 4 — Implementation ✅ (llm.py, email_sender.py, whatsapp_sender.py,
+  scheduler.py, main.py)
+- Phase 5 — Testing ✅ (14/14 unit tests passing)
+- Phase 6 — Documentation 🔜 (README, architecture doc, demo prep)
+- Phase 7+ — Production hardening 🔜 (see roadmap below)
+
+## Tech Stack
+- Language: Python 3.11
+- Scheduler: APScheduler 3.10.4 (BlockingScheduler, daily cron at 09:00)
+- LLM: Groq API, model llama-3.3-70b-versatile (gsk_ key)
+- Email: smtplib + Gmail SMTP (port 587, STARTTLS, App Password)
+- WhatsApp: Twilio sandbox (production needs verified WhatsApp Business Account)
+- Data (POC): CSV + SQLite
+- HTTP client: httpx
+- Env management: python-dotenv
+- Testing: pytest with conftest.py shared fixtures
+
+## Repo Structure
+collection-agent/
+├── .env                        # secrets (gitignored)
+├── .env.example                # template
+├── .gitignore
+├── README.md
+├── requirements.txt
+├── conftest.py                 # pytest shared fixtures + path setup
+├── main.py                     # entry point — init DB, run cycle, start scheduler
+├── data/
+│   ├── customers.csv           # input: customer + invoice records
+│   └── collection_log.db       # SQLite: communication_log + invoice_stage_tracker
+├── agent/
+│   ├── __init__.py
+│   ├── scanner.py              # reads CSV, calculates days_delta, returns action list
+│   ├── scheduler.py            # orchestrates: scan → generate → send → log
+│   ├── llm.py                  # Groq API call, SUBJECT/BODY delimiter parsing, fallback
+│   ├── email_sender.py         # Gmail SMTP sender, returns (ok, err)
+│   ├── whatsapp_sender.py      # Twilio sender with number normalization, returns (ok, err)
+│   └── logger.py               # SQLite: log_communication, mark_stage_done, is_stage_done
+├── templates/
+│   └── messages.py             # fallback templates for all 7 stages × 2 channels
+└── tests/
+    ├── test_logger.py          # 6 tests: dedup, idempotency, logging
+    └── test_scanner.py         # 8 tests: delta calc, stage detection, edge cases
+
+## Key Design Decisions (defend these to your lead)
+1. One row per invoice in CSV (not per customer) — supports multiple invoices per customer
+2. invoice_ref = f"{customer_id}_{due_date}" — synthetic unique key, no schema change needed
+3. Stage detection: find most recent applicable unsent stage (reversed iteration).
+   If agent was offline 5 days, fires most relevant stage, not oldest stale one
+4. INSERT OR IGNORE on invoice_stage_tracker — DB-level dedup guarantee, not app-level
+5. LLM uses SUBJECT:/BODY: delimiters, not JSON — JSON breaks on multiline text from LLMs
+6. temperature=0.4 for Groq — consistent professional tone, slight variation per customer
+7. Graceful degradation: LLM failure → template fallback; send failure → logged, retried next cycle
+8. fresh_db fixture in conftest.py only — single source of truth, applies to all test files
+9. DB_PATH overridable via COLLECTION_DB_PATH env var — enables test isolation without
+   touching production DB
+
+## Collection Stage Rules
+| Stage   | Condition              |
+|---------|------------------------|
+| pre_7   | 7 days before due date |
+| pre_3   | 3 days before due date |
+| pre_1   | 1 day before due date  |
+| post_1  | 1 day overdue          |
+| post_7  | 7 days overdue         |
+| post_15 | 15 days overdue        |
+| post_30 | 30+ days (escalation)  |
+
+## customers.csv schema
+customer_id, customer_name, email, phone, amount_due, currency,
+due_date (YYYY-MM-DD), preferred_channel (email/whatsapp), risk_tier (low/medium/high)
+
+## SQLite schema
+communication_log: id, customer_id, invoice_ref, stage, channel, status,
+                   message_text, sent_at, error_detail
+invoice_stage_tracker: customer_id, invoice_ref, stage, completed_at
+                       PRIMARY KEY (customer_id, invoice_ref, stage)
+
+## Known Limitations / Flagged for Production
+- Twilio WhatsApp sandbox requires each recipient to manually send join message
+- LLM occasionally writes [Your Name] placeholder — system prompt patched with
+  "Sign off as: Collections Team, Insignytics"
+- CSV is flat file — no concurrent write safety
+- No retry queue — failed sends only retry on next scheduler cycle
+- No authentication or API layer — direct Python execution only
+- Scheduler runs in single process — no HA/failover
+
+## What to do next (continue from Phase 6)(better alternative suggestions are welcome)
+
+### Phase 6 — Documentation
+- README.md: setup guide, architecture overview, how to run, how to add customers
+- Demo prep: script showing scanner → LLM → send → dedup proof
+- Record a short screen recording for Anuj
+
+### Production Roadmap (Phase 7+)
+These are the phases to work through after Phase 6:
+
+**Phase 7 — API Layer**
+- Wrap agent in FastAPI: POST /trigger-cycle, GET /logs, GET /customers/{id}/history
+- Authentication: API key middleware
+- This enables CRM webhooks to call the agent instead of cron
+
+**Phase 8 — CRM Integration**
+- HubSpot free tier: read contacts + deals via REST API (replace CSV reader in scanner.py)
+- Zoho CRM: OAuth2 flow, read Invoices module
+- Salesforce: connected app, REST API (requires paid tier)
+- Adapter pattern: scanner.py calls a DataSource interface; CSV and CRM are interchangeable
+
+**Phase 9 — Database Upgrade**
+- Replace SQLite with PostgreSQL
+- Add Alembic for schema migrations
+- Connection pooling with SQLAlchemy
+- Concurrent write safety for multi-process deployment
+
+**Phase 10 — WhatsApp Production**
+- Replace Twilio sandbox with verified WhatsApp Business Account
+- Pre-approve message templates with Meta
+- Handle delivery receipts (webhook callbacks)
+
+**Phase 11 — Dashboard**
+- FastAPI backend + React frontend
+- Pages: collection overview, customer history, stage funnel, recovery rate
+- Real-time log viewer
+
+**Phase 12 — ML Risk Prediction**
+- Feature: predict which customers will delay payment
+- Features: payment history, days_delta, amount, risk_tier
+- Simple logistic regression → XGBoost → flag high-risk before due date
+
+**Phase 13 — Production Deployment**
+- Dockerize: Dockerfile + docker-compose (app + postgres)
+- Deploy to AWS EC2 / GCP Cloud Run
+- Secrets: AWS Secrets Manager or HashiCorp Vault (replace .env)
+- Monitoring: structured logging (loguru) + Sentry for errors
+- CI/CD: GitHub Actions — run tests on every push, deploy on main merge
+
+
+We are continuing from Phase 6 — Documentation.
+Start with the README.md.
